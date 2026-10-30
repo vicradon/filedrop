@@ -1,0 +1,11 @@
+name = "drop"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+
+[[r2_buckets]]
+binding = "DROPS"
+bucket_name = "drop-files"
+
+# Hourly sweep of expired drops
+[triggers]
+crons = ["0 * * * *"]
