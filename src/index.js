@@ -4,6 +4,7 @@
 const TTLS = { "1h": 3600, "1d": 86400, "7d": 604800 };
 const MAX_BYTES = 95 * 1024 * 1024; // Workers Free/Pro request body cap is 100 MB
 const NAME_RE = /^[A-Za-z0-9._-]{1,64}$/;
+const MAX_TOTAL = 500 * 1024 * 1024; // whole bucket cap: 500 MB
 
 export default {
   async fetch(req, env) {
@@ -93,6 +94,7 @@ async function handleForm(req, env, name) {
 
   if (file && typeof file !== "string" && file.size > 0) {
     if (file.size > MAX_BYTES) return text("File too large (max ~95 MB)\n", 413);
+    if (await isFull(env, file.size)) return full();
     await env.DROPS.put(name, file, {
       httpMetadata: { contentType: file.type || "application/octet-stream" },
       customMetadata: { kind: "file", filename: file.name || name, expires },
@@ -100,6 +102,7 @@ async function handleForm(req, env, name) {
   } else {
     const t = String(form.get("text") || "");
     if (!t.trim()) return text("Nothing to drop\n", 400);
+    if (await isFull(env, new TextEncoder().encode(t).byteLength)) return full();
     await env.DROPS.put(name, t, {
       httpMetadata: { contentType: "text/plain; charset=utf-8" },
       customMetadata: { kind: "text", filename: `${name}.txt`, expires },
@@ -116,6 +119,7 @@ async function handlePut(req, env, url, name) {
   const body = await req.arrayBuffer();
   if (!body.byteLength) return text("Empty body\n", 400);
   if (body.byteLength > MAX_BYTES) return text("File too large (max ~95 MB)\n", 413);
+  if (await isFull(env, body.byteLength)) return full();
 
   const ttl = TTLS[url.searchParams.get("ttl")] ?? TTLS["1d"];
   await env.DROPS.put(name, body, {
@@ -130,6 +134,20 @@ async function handlePut(req, env, url, name) {
 }
 
 // ---------- helpers ----------
+
+// Sums live drops (deleting expired ones on the way) and checks the cap.
+async function isFull(env, incoming) {
+  let total = 0, cursor;
+  const dead = [];
+  do {
+    const list = await env.DROPS.list({ cursor, include: ["customMetadata"] });
+    for (const o of list.objects) isExpired(o) ? dead.push(o.key) : (total += o.size);
+    cursor = list.truncated ? list.cursor : undefined;
+  } while (cursor);
+  if (dead.length) await env.DROPS.delete(dead);
+  return total + incoming > MAX_TOTAL;
+}
+const full = () => text("Storage full (500 MB cap). Delete a drop or wait for one to expire.\n", 507);
 
 const isExpired = (o) => Number(o.customMetadata?.expires || 0) < Date.now();
 const isCli = (req) => /curl|wget|httpie/i.test(req.headers.get("user-agent") || "");

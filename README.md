@@ -27,4 +27,5 @@ curl -X DELETE https://drop.<sub>.workers.dev/notes
 
 - No password: anyone who guesses a name can read or delete it. Use random names for anything private.
 - Max ~95 MB per file (Workers request body limit).
+- Whole bucket capped at 500 MB; uploads past that get "Storage full" until something is deleted or expires.
 - R2 free tier: 10 GB storage, no egress fees.
