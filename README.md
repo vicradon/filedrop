@@ -28,3 +28,7 @@ curl -OJ https://drop.<sub>.workers.dev/notes      # download
 - Max ~95 MB per file (Workers request body limit).
 - Whole bucket capped at 500 MB; uploads past that get "Storage full" until something is deleted or expires.
 - R2 free tier: 10 GB storage, no egress fees.
+
+## Custom domain via Vercel
+
+`vercel/` holds a config-only Vercel project (root directory `vercel`) that proxies every request to the Worker, so `drop.osinachi.me` gets SSL without moving DNS to Cloudflare. DNS: CNAME `drop` → `cname.vercel-dns.com` at Namecheap.
