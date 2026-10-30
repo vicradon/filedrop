@@ -1,13 +1,14 @@
 // Drop: a tiny cl1p-style file/text dropper on Cloudflare Workers + R2.
 // Visit /<name>. Empty? Upload a file or paste text. Taken? View / download it.
 
-const TTLS = { "1h": 3600, "1d": 86400, "7d": 604800 };
+// "once" = deleted after the first download (files) or view (text); 7-day fallback if never opened.
+const TTLS = { "1h": 3600, "1d": 86400, "7d": 604800, once: 604800 };
 const MAX_BYTES = 95 * 1024 * 1024; // Workers Free/Pro request body cap is 100 MB
 const NAME_RE = /^[A-Za-z0-9._-]{1,64}$/;
 const MAX_TOTAL = 500 * 1024 * 1024; // whole bucket cap: 500 MB
 
 export default {
-  async fetch(req, env) {
+  async fetch(req, env, ctx) {
     const url = new URL(req.url);
     let name;
     try {
@@ -21,14 +22,11 @@ export default {
     switch (req.method) {
       case "GET":
       case "HEAD":
-        return handleGet(req, env, url, name);
+        return handleGet(req, env, ctx, url, name);
       case "POST":
         return handleForm(req, env, name);
       case "PUT":
         return handlePut(req, env, url, name);
-      case "DELETE":
-        await env.DROPS.delete(name);
-        return text("deleted\n");
       default:
         return text("Method not allowed\n", 405);
     }
@@ -48,7 +46,7 @@ export default {
 
 // ---------- handlers ----------
 
-async function handleGet(req, env, url, name) {
+async function handleGet(req, env, ctx, url, name) {
   const raw = url.searchParams.has("dl") || isCli(req);
   const head = await env.DROPS.head(name);
 
@@ -58,6 +56,11 @@ async function handleGet(req, env, url, name) {
   }
 
   const m = head.customMetadata;
+  const once = m.once === "1";
+
+  // Uploader's confirmation page: never shows (or burns) the content.
+  if (url.searchParams.has("sent") && !raw) return page(name, sentBody(name, head));
+
   if (raw) {
     const obj = await env.DROPS.get(name);
     if (!obj) return text("empty\n", 404);
@@ -69,27 +72,32 @@ async function handleGet(req, env, url, name) {
       m.kind === "text" ? "inline" : `attachment; filename*=UTF-8''${encodeURIComponent(m.filename)}`
     );
     h.set("Cache-Control", "no-store");
-    return new Response(req.method === "HEAD" ? null : obj.body, { headers: h });
+    if (req.method === "HEAD") return new Response(null, { headers: h });
+    if (!once) return new Response(obj.body, { headers: h });
+    // One-time: stream it out, then delete once the transfer finishes.
+    const { readable, writable } = new TransformStream();
+    ctx.waitUntil(obj.body.pipeTo(writable).then(() => env.DROPS.delete(name)));
+    return new Response(readable, { headers: h });
   }
 
   let preview = "";
-  if (m.kind === "text") preview = await (await env.DROPS.get(name)).text();
+  if (m.kind === "text") {
+    preview = await (await env.DROPS.get(name)).text();
+    if (once) await env.DROPS.delete(name); // viewing a one-time text burns it
+  }
   return page(name, viewBody(name, head, preview));
 }
 
 async function handleForm(req, env, name) {
   const form = await req.formData();
 
-  if (form.get("action") === "delete") {
-    await env.DROPS.delete(name);
-    return redirect(name);
-  }
-
   const existing = await env.DROPS.head(name);
-  if (existing && !isExpired(existing)) return text("That name is taken. Delete it first.\n", 409);
+  if (existing && !isExpired(existing)) return taken();
 
-  const ttl = TTLS[form.get("ttl")] ?? TTLS["1d"];
+  const key = form.get("ttl");
+  const ttl = TTLS[key] ?? TTLS["1d"];
   const expires = String(Date.now() + ttl * 1000);
+  const once = key === "once" ? "1" : "";
   const file = form.get("file");
 
   if (file && typeof file !== "string" && file.size > 0) {
@@ -97,7 +105,7 @@ async function handleForm(req, env, name) {
     if (await isFull(env, file.size)) return full();
     await env.DROPS.put(name, file, {
       httpMetadata: { contentType: file.type || "application/octet-stream" },
-      customMetadata: { kind: "file", filename: file.name || name, expires },
+      customMetadata: { kind: "file", filename: file.name || name, expires, once },
     });
   } else {
     const t = String(form.get("text") || "");
@@ -105,29 +113,31 @@ async function handleForm(req, env, name) {
     if (await isFull(env, new TextEncoder().encode(t).byteLength)) return full();
     await env.DROPS.put(name, t, {
       httpMetadata: { contentType: "text/plain; charset=utf-8" },
-      customMetadata: { kind: "text", filename: `${name}.txt`, expires },
+      customMetadata: { kind: "text", filename: `${name}.txt`, expires, once },
     });
   }
-  return redirect(name);
+  return new Response(null, { status: 303, headers: { Location: `/${name}?sent` } });
 }
 
 // curl -T file.pdf https://<worker>/<name>?ttl=1h
 async function handlePut(req, env, url, name) {
   const existing = await env.DROPS.head(name);
-  if (existing && !isExpired(existing)) return text("That name is taken. DELETE it first.\n", 409);
+  if (existing && !isExpired(existing)) return taken();
 
   const body = await req.arrayBuffer();
   if (!body.byteLength) return text("Empty body\n", 400);
   if (body.byteLength > MAX_BYTES) return text("File too large (max ~95 MB)\n", 413);
   if (await isFull(env, body.byteLength)) return full();
 
-  const ttl = TTLS[url.searchParams.get("ttl")] ?? TTLS["1d"];
+  const key = url.searchParams.get("ttl");
+  const ttl = TTLS[key] ?? TTLS["1d"];
   await env.DROPS.put(name, body, {
     httpMetadata: { contentType: req.headers.get("content-type") || "application/octet-stream" },
     customMetadata: {
       kind: "file",
       filename: url.searchParams.get("filename") || name,
       expires: String(Date.now() + ttl * 1000),
+      once: key === "once" ? "1" : "",
     },
   });
   return text(`${url.origin}/${name}\n`, 201);
@@ -147,13 +157,13 @@ async function isFull(env, incoming) {
   if (dead.length) await env.DROPS.delete(dead);
   return total + incoming > MAX_TOTAL;
 }
-const full = () => text("Storage full (500 MB cap). Delete a drop or wait for one to expire.\n", 507);
+const full = () => text("Storage full (500 MB cap). Try again once some drops expire.\n", 507);
+const taken = () => text("That name is taken. Pick another one.\n", 409);
 
 const isExpired = (o) => Number(o.customMetadata?.expires || 0) < Date.now();
 const isCli = (req) => /curl|wget|httpie/i.test(req.headers.get("user-agent") || "");
 const text = (s, status = 200) =>
   new Response(s, { status, headers: { "Content-Type": "text/plain; charset=utf-8" } });
-const redirect = (name) => new Response(null, { status: 303, headers: { Location: `/${name}` } });
 const esc = (s) =>
   String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 
@@ -227,7 +237,7 @@ function uploadBody(name) {
 <div class="or">or paste text</div>
 <textarea name="text" placeholder="Text, a link, whatever"></textarea>
 <div class="row" style="margin-top:14px;justify-content:space-between">
-<label class="mute">Expires in <select name="ttl"><option value="1h">1 hour</option><option value="1d" selected>1 day</option><option value="7d">7 days</option></select></label>
+<label class="mute">Expires in <select name="ttl"><option value="1h">1 hour</option><option value="1d" selected>1 day</option><option value="7d">7 days</option><option value="once">After first download / view</option></select></label>
 <button id="go">Drop it</button>
 </div>
 <progress id="p" max="1" value="0" hidden></progress>
@@ -242,7 +252,7 @@ z.addEventListener('drop',function(ev){if(ev.dataTransfer.files.length){fi.files
 f.onsubmit=function(ev){ev.preventDefault();var p=document.getElementById('p'),b=document.getElementById('go');
 var x=new XMLHttpRequest();x.open('POST',location.pathname);p.hidden=false;b.disabled=true;b.textContent='Uploading…';
 x.upload.onprogress=function(e){if(e.lengthComputable)p.value=e.loaded/e.total};
-x.onload=function(){if(x.status<400)location.reload();else{alert(x.responseText);b.disabled=false;b.textContent='Drop it';p.hidden=true}};
+x.onload=function(){if(x.status<400)location.href=location.pathname+'?sent';else{alert(x.responseText);b.disabled=false;b.textContent='Drop it';p.hidden=true}};
 x.onerror=function(){alert('Upload failed');b.disabled=false;b.textContent='Drop it'};
 x.send(new FormData(f))};
 </script>`;
@@ -250,20 +260,40 @@ x.send(new FormData(f))};
 
 function viewBody(name, head, preview) {
   const m = head.customMetadata;
-  const left = fmtLeft(Number(m.expires) - Date.now());
+  const once = m.once === "1";
+  const status = once
+    ? m.kind === "text"
+      ? "One-time text: it has now been deleted, so copy it before leaving this page."
+      : "One-time file: it gets deleted after the first download."
+    : `Expires in ${fmtLeft(Number(m.expires) - Date.now())}`;
   const content =
     m.kind === "text"
       ? `<pre id="t">${esc(preview)}</pre>
 <div class="row"><button onclick="navigator.clipboard.writeText(document.getElementById('t').textContent).then(()=>this.textContent='Copied')">Copy text</button>
-<a class="btn ghost" href="?dl">Raw</a></div>`
+${once ? "" : '<a class="btn ghost" href="?dl">Raw</a>'}</div>`
       : `<p style="margin:0 0 4px;font-weight:600;word-break:break-all">${esc(m.filename)}</p>
 <p class="mute" style="margin:0 0 16px">${fmtSize(head.size)}</p>
 <div class="row"><a class="btn" href="?dl">Download</a></div>`;
   return `<h1>/${esc(name)}</h1>
-<p class="mute">Expires in ${left}</p>
+<p class="mute">${status}</p>
 <div class="card">${content}</div>
-<div class="row" style="margin-top:16px;justify-content:space-between">
-<button class="ghost" onclick="navigator.clipboard.writeText(location.href).then(()=>this.textContent='Link copied')">Copy link</button>
-<form method="post" onsubmit="return confirm('Delete this drop?')"><input type="hidden" name="action" value="delete"><button class="danger">Delete</button></form>
-</div>`;
+${once && m.kind === "text" ? "" : copyLink()}`;
 }
+
+// Shown to the uploader right after dropping; never reveals or burns the content.
+function sentBody(name, head) {
+  const m = head.customMetadata;
+  const what = m.kind === "text" ? "Text" : esc(m.filename);
+  const note =
+    m.once === "1"
+      ? `It will be deleted after the first ${m.kind === "text" ? "view" : "download"} (or in 7 days if nobody opens it).`
+      : `Expires in ${fmtLeft(Number(m.expires) - Date.now())}.`;
+  return `<h1>/${esc(name)}</h1>
+<div class="card"><p style="margin:0 0 4px;font-weight:600;word-break:break-all">${what} dropped</p>
+<p class="mute" style="margin:0">${note}</p></div>
+${copyLink()}`;
+}
+
+const copyLink = () => `<div class="row" style="margin-top:16px">
+<button class="ghost" onclick="navigator.clipboard.writeText(location.origin+location.pathname).then(()=>this.textContent='Link copied')">Copy link</button>
+</div>`;

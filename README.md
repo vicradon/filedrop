@@ -1,6 +1,6 @@
 # Drop
 
-cl1p-style dropper on Cloudflare Workers + R2. Visit `/<name>`: if empty, upload a file or paste text; if taken, view or download it. Drops expire after 1 h, 1 day or 7 days.
+cl1p-style dropper on Cloudflare Workers + R2. Visit `/<name>`: if empty, upload a file or paste text; if taken, view or download it. Drops expire after 1 h, 1 day or 7 days, or can be one-time (deleted after the first download or view).
 
 ## Deploy
 
@@ -20,12 +20,11 @@ You get `https://drop.<your-subdomain>.workers.dev`. To use your own domain, add
 ```bash
 curl -T notes.pdf "https://drop.<sub>.workers.dev/notes?ttl=1h&filename=notes.pdf"
 curl -OJ https://drop.<sub>.workers.dev/notes      # download
-curl -X DELETE https://drop.<sub>.workers.dev/notes
 ```
 
 ## Notes
 
-- No password: anyone who guesses a name can read or delete it. Use random names for anything private.
+- No password: anyone who guesses a name can read it. One-time text is burned by the first visit, including link-preview bots in chat apps. Use random names for anything private.
 - Max ~95 MB per file (Workers request body limit).
 - Whole bucket capped at 500 MB; uploads past that get "Storage full" until something is deleted or expires.
 - R2 free tier: 10 GB storage, no egress fees.
