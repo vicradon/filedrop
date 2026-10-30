@@ -9,3 +9,8 @@ bucket_name = "drop-files"
 # Hourly sweep of expired drops
 [triggers]
 crons = ["0 * * * *"]
+
+# Lets src/index.js import og.png as binary data
+[[rules]]
+type = "Data"
+globs = ["**/*.png"]

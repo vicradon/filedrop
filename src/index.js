@@ -6,6 +6,13 @@ const TTLS = { "1h": 3600, "1d": 86400, "7d": 604800, once: 604800 };
 const MAX_BYTES = 95 * 1024 * 1024; // Workers Free/Pro request body cap is 100 MB
 const NAME_RE = /^[A-Za-z0-9._-]{1,64}$/;
 const MAX_TOTAL = 500 * 1024 * 1024; // whole bucket cap: 500 MB
+const SITE = "https://drop.osinachi.me"; // public URL, used for og:image / og:url
+const DESC = "Drop a file or some text at any name, open the same name on another device. No accounts, auto-expiring.";
+// Link-preview bots: they get meta tags only, so they never burn a one-time drop.
+const BOT_RE = /bot|crawler|spider|facebookexternalhit|whatsapp|slack|telegram|discord|linkedin|skype|embedly|preview|vkshare|pinterest/i;
+const FAVICON = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#2f6fed"/><path d="M32 14c-7 10-14 18-14 26a14 14 0 0 0 28 0c0-8-7-16-14-26z" fill="#fff"/></svg>`;
+
+import OG_PNG from "./og.png";
 
 export default {
   async fetch(req, env, ctx) {
@@ -16,6 +23,12 @@ export default {
     } catch {
       return text("Bad name\n", 400);
     }
+    if (name === "og.png")
+      return new Response(OG_PNG, { headers: { "Content-Type": "image/png", "Cache-Control": "public, max-age=86400" } });
+    if (name === "favicon.svg" || name === "favicon.ico")
+      return new Response(FAVICON, { headers: { "Content-Type": "image/svg+xml", "Cache-Control": "public, max-age=86400" } });
+    if (BOT_RE.test(req.headers.get("user-agent") || "") && req.method === "GET")
+      return page(name || "Drop", "");
     if (!name) return page("Drop", homeBody());
     if (!NAME_RE.test(name)) return text("Names: letters, digits, . _ - (max 64)\n", 400);
 
@@ -184,10 +197,24 @@ function fmtLeft(ms) {
 // ---------- HTML ----------
 
 function page(title, body) {
+  const path = title === "Drop" ? "" : title;
   return new Response(
     `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${esc(title)} · Drop</title>
+<title>${esc(path ? `/${path}` : "Drop")}${path ? " · Drop" : ""}</title>
+<meta name="description" content="${DESC}">
+<meta name="theme-color" content="#2f6fed">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Drop">
+<meta property="og:title" content="${esc(path ? `/${path} · Drop` : "Drop · quick file & text sharing")}">
+<meta property="og:description" content="${DESC}">
+<meta property="og:url" content="${SITE}/${esc(path)}">
+<meta property="og:image" content="${SITE}/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="${SITE}/og.png">
 <style>
 :root{--bg:#f6f5f2;--card:#fff;--fg:#1d1d1b;--mute:#6b6a66;--line:#e2e0da;--acc:#2f6fed;--accfg:#fff;--danger:#c23b2a}
 @media (prefers-color-scheme:dark){:root{--bg:#121212;--card:#1c1c1c;--fg:#ecebe8;--mute:#9a9893;--line:#2e2e2c;--acc:#6d9bff;--accfg:#0d0d0d;--danger:#ff7a68}}
