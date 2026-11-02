@@ -264,6 +264,76 @@ function homeBody() {
 </div>`;
 }
 
+// Client script for the upload page. String.raw keeps backslashes (e.g. the /^image\//
+// regex) intact; in a plain template literal "\/" silently becomes "/" and breaks the script.
+const UPLOAD_JS = String.raw`
+var z = document.getElementById('z'), fi = document.getElementById('file'),
+    zl = document.getElementById('zl'), pv = document.getElementById('pv'),
+    f = document.getElementById('f');
+var LABEL = 'Tap to choose, drag, or paste an image';
+var isImg = function (t) { return /^image\//.test(t); };
+
+function show() {
+  var file = fi.files[0];
+  zl.textContent = file ? file.name + ' (' + (file.size / 1048576).toFixed(1) + ' MB)' : LABEL;
+  if (pv.src) URL.revokeObjectURL(pv.src);
+  if (file && isImg(file.type)) {
+    pv.src = URL.createObjectURL(file);
+    pv.style.display = 'block';
+  } else {
+    pv.removeAttribute('src');
+    pv.style.display = 'none';
+  }
+}
+fi.onchange = show;
+
+function setFile(file) {
+  var dt = new DataTransfer();
+  dt.items.add(file);
+  fi.files = dt.files;
+  show();
+}
+
+document.addEventListener('paste', function (ev) {
+  var items = Array.prototype.slice.call((ev.clipboardData || {}).items || []);
+  var it = items.find(function (i) { return i.kind === 'file' && isImg(i.type); });
+  if (!it) return; // plain text paste goes to the textarea as usual
+  ev.preventDefault();
+  var b = it.getAsFile(), d = new Date();
+  var p = function (n) { return String(n).padStart(2, '0'); };
+  var ext = (b.type.split('/')[1] || 'png').split('+')[0].replace('jpeg', 'jpg');
+  var nm = 'pasted-' + d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) +
+           '-' + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds()) + '.' + ext;
+  setFile(new File([b], nm, { type: b.type }));
+});
+
+['dragenter', 'dragover'].forEach(function (e) {
+  z.addEventListener(e, function (ev) { ev.preventDefault(); z.classList.add('over'); });
+});
+['dragleave', 'drop'].forEach(function (e) {
+  z.addEventListener(e, function (ev) { ev.preventDefault(); z.classList.remove('over'); });
+});
+z.addEventListener('drop', function (ev) {
+  if (ev.dataTransfer.files.length) { fi.files = ev.dataTransfer.files; show(); }
+});
+
+f.onsubmit = function (ev) {
+  ev.preventDefault();
+  var p = document.getElementById('p'), b = document.getElementById('go');
+  var reset = function () { b.disabled = false; b.textContent = 'Drop it'; p.hidden = true; };
+  var x = new XMLHttpRequest();
+  x.open('POST', location.pathname);
+  p.hidden = false; b.disabled = true; b.textContent = 'Uploading\u2026';
+  x.upload.onprogress = function (e) { if (e.lengthComputable) p.value = e.loaded / e.total; };
+  x.onload = function () {
+    if (x.status < 400) location.href = location.pathname + '?sent';
+    else { alert(x.responseText); reset(); }
+  };
+  x.onerror = function () { alert('Upload failed'); reset(); };
+  x.send(new FormData(f));
+};
+`;
+
 function uploadBody(name) {
   return `<h1>/${esc(name)}</h1>
 <p class="mute">Empty. Drop something here.</p>
@@ -277,26 +347,7 @@ function uploadBody(name) {
 </div>
 <progress id="p" max="1" value="0" hidden></progress>
 </form>
-<script>
-var z=document.getElementById('z'),fi=document.getElementById('file'),zl=document.getElementById('zl'),f=document.getElementById('f');
-function show(){zl.textContent=fi.files.length?fi.files[0].name+' ('+(fi.files[0].size/1048576).toFixed(1)+' MB)':'Tap to choose, drag, or paste an image'}
-var pv=document.getElementById('pv');
-var _show=show;show=function(){_show();var f0=fi.files[0];if(f0&&/^image\//.test(f0.type)){pv.src=URL.createObjectURL(f0);pv.style.display='block'}else{pv.style.display='none'}};
-fi.onchange=show;
-document.addEventListener('paste',function(ev){var it=[].slice.call((ev.clipboardData||{}).items||[]).find(function(i){return i.kind==='file'&&/^image\//.test(i.type)});if(!it)return;ev.preventDefault();
-var b=it.getAsFile(),d=new Date(),p=function(n){return String(n).padStart(2,'0')};
-var nm='pasted-'+d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+'-'+p(d.getHours())+p(d.getMinutes())+'.'+((b.type.split('/')[1]||'png').replace('jpeg','jpg'));
-var dt=new DataTransfer();dt.items.add(new File([b],nm,{type:b.type}));fi.files=dt.files;show()});
-['dragenter','dragover'].forEach(function(e){z.addEventListener(e,function(ev){ev.preventDefault();z.classList.add('over')})});
-['dragleave','drop'].forEach(function(e){z.addEventListener(e,function(ev){ev.preventDefault();z.classList.remove('over')})});
-z.addEventListener('drop',function(ev){if(ev.dataTransfer.files.length){fi.files=ev.dataTransfer.files;show()}});
-f.onsubmit=function(ev){ev.preventDefault();var p=document.getElementById('p'),b=document.getElementById('go');
-var x=new XMLHttpRequest();x.open('POST',location.pathname);p.hidden=false;b.disabled=true;b.textContent='Uploading…';
-x.upload.onprogress=function(e){if(e.lengthComputable)p.value=e.loaded/e.total};
-x.onload=function(){if(x.status<400)location.href=location.pathname+'?sent';else{alert(x.responseText);b.disabled=false;b.textContent='Drop it';p.hidden=true}};
-x.onerror=function(){alert('Upload failed');b.disabled=false;b.textContent='Drop it'};
-x.send(new FormData(f))};
-</script>`;
+<script>${UPLOAD_JS}</script>`;
 }
 
 function viewBody(name, head, preview) {
