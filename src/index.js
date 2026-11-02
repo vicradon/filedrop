@@ -245,6 +245,11 @@ button,.btn{font:inherit;font-weight:600;border:0;border-radius:8px;padding:10px
 .clear{position:absolute;top:8px;right:8px;width:28px;height:28px;padding:0;border-radius:50%;display:flex;align-items:center;justify-content:center;background:var(--card);color:var(--mute);border:1px solid var(--line)}
 .clear:hover{color:var(--danger)}
 .clear[hidden]{display:none}
+.fold{display:grid;grid-template-rows:1fr;transition:grid-template-rows .25s ease,opacity .2s ease}
+.fold>div{min-height:0;overflow:hidden;padding:3px;margin:-3px}
+.fold.shut{grid-template-rows:0fr;opacity:0}
+.fold.shut>div{visibility:hidden;transition:visibility 0s .25s}
+@media (prefers-reduced-motion:reduce){.fold{transition:none}}
 .or{text-align:center;color:var(--mute);font-size:13px;margin:14px 0}
 pre{white-space:pre-wrap;word-break:break-word;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:12px;font-size:14px;max-height:60vh;overflow:auto}
 progress{width:100%;height:8px;margin-top:12px}
@@ -272,14 +277,16 @@ function homeBody() {
 const UPLOAD_JS = String.raw`
 var z = document.getElementById('z'), fi = document.getElementById('file'),
     zl = document.getElementById('zl'), pv = document.getElementById('pv'),
-    f = document.getElementById('f'), tx = document.getElementById('tx'), xb = document.getElementById('x');
+    f = document.getElementById('f'), xb = document.getElementById('x'),
+    zw = document.getElementById('zw'), dv = document.getElementById('dv'), tx = document.getElementById('tx'),
+    ta = document.querySelector('textarea[name=text]');
 var LABEL = 'Tap to choose, drag, or paste an image';
 var isImg = function (t) { return /^image\//.test(t); };
 
 function show() {
   var file = fi.files[0];
   xb.hidden = !file;
-  tx.hidden = !!file; // a file wins over text, so hide the text box until the file is removed
+  sync();
   zl.textContent = file ? file.name + ' (' + (file.size / 1048576).toFixed(1) + ' MB)' : LABEL;
   if (pv.src) URL.revokeObjectURL(pv.src);
   if (file && isImg(file.type)) {
@@ -292,6 +299,15 @@ function show() {
 }
 fi.onchange = show;
 xb.onclick = function (ev) { ev.preventDefault(); ev.stopPropagation(); fi.value = ''; show(); };
+
+// A file wins over text. File chosen: fold away the text box. Typing: fold away the picker.
+function sync() {
+  var file = fi.files[0], typing = !file && ta.value.trim() !== '';
+  zw.classList.toggle('shut', typing);
+  tx.classList.toggle('shut', !!file);
+  dv.classList.toggle('shut', typing || !!file);
+}
+ta.addEventListener('input', sync);
 
 function setFile(file) {
   var dt = new DataTransfer();
@@ -344,9 +360,9 @@ function uploadBody(name) {
   return `<h1>/${esc(name)}</h1>
 <p class="mute">Empty. Drop something here.</p>
 <form class="card" id="f" method="post" enctype="multipart/form-data">
-<label class="zone" id="z"><input type="file" name="file" id="file"><img id="pv" alt="" style="display:none;max-width:100%;max-height:200px;margin:0 auto 10px;border-radius:8px"><span id="zl">Tap to choose, drag, or paste an image</span><button type="button" class="clear" id="x" aria-label="Remove file" title="Remove" hidden><svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M3 3l8 8M11 3l-8 8"/></svg></button></label>
-<div id="tx"><div class="or">or paste text</div>
-<textarea name="text" placeholder="Text, a link, whatever"></textarea></div>
+<div class="fold" id="zw"><div><label class="zone" id="z"><input type="file" name="file" id="file"><img id="pv" alt="" style="display:none;max-width:100%;max-height:200px;margin:0 auto 10px;border-radius:8px"><span id="zl">Tap to choose, drag, or paste an image</span><button type="button" class="clear" id="x" aria-label="Remove file" title="Remove" hidden><svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M3 3l8 8M11 3l-8 8"/></svg></button></label></div></div>
+<div class="fold" id="dv"><div><div class="or">or paste text</div></div></div>
+<div class="fold" id="tx"><div><textarea name="text" placeholder="Text, a link, whatever"></textarea></div></div>
 <div class="row" style="margin-top:14px;justify-content:space-between">
 <label class="mute">Expires in <select name="ttl"><option value="1h">1 hour</option><option value="1d" selected>1 day</option><option value="7d">7 days</option><option value="once">After first download / view</option></select></label>
 <button id="go">Drop it</button>
