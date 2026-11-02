@@ -278,7 +278,8 @@ var isImg = function (t) { return /^image\//.test(t); };
 
 function show() {
   var file = fi.files[0];
-  tx.hidden = xb.hidden = !file; // a file wins over text, so hide the text box until the file is removed
+  xb.hidden = !file;
+  tx.hidden = !!file; // a file wins over text, so hide the text box until the file is removed
   zl.textContent = file ? file.name + ' (' + (file.size / 1048576).toFixed(1) + ' MB)' : LABEL;
   if (pv.src) URL.revokeObjectURL(pv.src);
   if (file && isImg(file.type)) {
