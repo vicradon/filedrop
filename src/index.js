@@ -239,9 +239,12 @@ textarea{width:100%;min-height:140px;resize:vertical;font-family:ui-monospace,Me
 button,.btn{font:inherit;font-weight:600;border:0;border-radius:8px;padding:10px 16px;background:var(--acc);color:var(--accfg);cursor:pointer;text-decoration:none;display:inline-block}
 .ghost{background:transparent;color:var(--fg);border:1px solid var(--line)}
 .danger{background:transparent;color:var(--danger);border:1px solid var(--line)}
-.zone{display:block;border:2px dashed var(--line);border-radius:12px;padding:28px 16px;text-align:center;cursor:pointer;color:var(--mute)}
+.zone{position:relative;display:block;border:2px dashed var(--line);border-radius:12px;padding:28px 16px;text-align:center;cursor:pointer;color:var(--mute)}
 .zone.over{border-color:var(--acc);color:var(--fg)}
 .zone input{display:none}
+.clear{position:absolute;top:8px;right:8px;width:28px;height:28px;padding:0;border-radius:50%;display:flex;align-items:center;justify-content:center;background:var(--card);color:var(--mute);border:1px solid var(--line)}
+.clear:hover{color:var(--danger)}
+.clear[hidden]{display:none}
 .or{text-align:center;color:var(--mute);font-size:13px;margin:14px 0}
 pre{white-space:pre-wrap;word-break:break-word;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:12px;font-size:14px;max-height:60vh;overflow:auto}
 progress{width:100%;height:8px;margin-top:12px}
@@ -269,12 +272,13 @@ function homeBody() {
 const UPLOAD_JS = String.raw`
 var z = document.getElementById('z'), fi = document.getElementById('file'),
     zl = document.getElementById('zl'), pv = document.getElementById('pv'),
-    f = document.getElementById('f');
+    f = document.getElementById('f'), tx = document.getElementById('tx'), xb = document.getElementById('x');
 var LABEL = 'Tap to choose, drag, or paste an image';
 var isImg = function (t) { return /^image\//.test(t); };
 
 function show() {
   var file = fi.files[0];
+  tx.hidden = xb.hidden = !file; // a file wins over text, so hide the text box until the file is removed
   zl.textContent = file ? file.name + ' (' + (file.size / 1048576).toFixed(1) + ' MB)' : LABEL;
   if (pv.src) URL.revokeObjectURL(pv.src);
   if (file && isImg(file.type)) {
@@ -286,6 +290,7 @@ function show() {
   }
 }
 fi.onchange = show;
+xb.onclick = function (ev) { ev.preventDefault(); ev.stopPropagation(); fi.value = ''; show(); };
 
 function setFile(file) {
   var dt = new DataTransfer();
@@ -338,9 +343,9 @@ function uploadBody(name) {
   return `<h1>/${esc(name)}</h1>
 <p class="mute">Empty. Drop something here.</p>
 <form class="card" id="f" method="post" enctype="multipart/form-data">
-<label class="zone" id="z"><input type="file" name="file" id="file"><img id="pv" alt="" style="display:none;max-width:100%;max-height:200px;margin:0 auto 10px;border-radius:8px"><span id="zl">Tap to choose, drag, or paste an image</span></label>
-<div class="or">or paste text</div>
-<textarea name="text" placeholder="Text, a link, whatever"></textarea>
+<label class="zone" id="z"><input type="file" name="file" id="file"><img id="pv" alt="" style="display:none;max-width:100%;max-height:200px;margin:0 auto 10px;border-radius:8px"><span id="zl">Tap to choose, drag, or paste an image</span><button type="button" class="clear" id="x" aria-label="Remove file" title="Remove" hidden><svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M3 3l8 8M11 3l-8 8"/></svg></button></label>
+<div id="tx"><div class="or">or paste text</div>
+<textarea name="text" placeholder="Text, a link, whatever"></textarea></div>
 <div class="row" style="margin-top:14px;justify-content:space-between">
 <label class="mute">Expires in <select name="ttl"><option value="1h">1 hour</option><option value="1d" selected>1 day</option><option value="7d">7 days</option><option value="once">After first download / view</option></select></label>
 <button id="go">Drop it</button>
