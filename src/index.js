@@ -191,8 +191,38 @@ const esc = (s) =>
 function fmtSize(n) {
   const u = ["B", "KB", "MB", "GB"];
   let i = 0;
-  while (n >= 1024 && i < u.length - 1) (n /= 1024), i++;
+  while (+n.toFixed(i ? 1 : 0) >= 1024 && i < u.length - 1) (n /= 1024), i++;
   return `${n.toFixed(i ? 1 : 0)} ${u[i]}`;
+}
+
+// File-type icon: a page outline with a colored extension badge. Self-contained on purpose:
+// the browser gets this function's source via toString() (see UPLOAD_JS), so no outer references.
+function fileIcon(name, type) {
+  var n = String(name || ""), t = String(type || "");
+  var dot = n.lastIndexOf("."), raw = dot > 0 ? n.slice(dot + 1).toLowerCase() : "", ext = "";
+  for (var i = 0; i < raw.length && ext.length < 4; i++) {
+    var c = raw.charAt(i);
+    if ((c >= "a" && c <= "z") || (c >= "0" && c <= "9")) ext += c; // keep only safe chars
+  }
+  var groups = [
+    ["#e5484d", " pdf "],
+    ["#2f6fed", " doc docx odt rtf pages "],
+    ["#2e9d5b", " xls xlsx csv tsv ods numbers "],
+    ["#e8833a", " ppt pptx odp key "],
+    ["#8e5cf0", " zip rar 7z tar gz tgz bz2 xz "],
+    ["#d6409f", " mp3 wav flac aac ogg m4a opus mp4 mov mkv avi webm m4v "],
+    ["#0e9aa7", " js mjs ts jsx tsx json html css py rb go rs java c cpp h sh yml yaml xml sql md "],
+  ];
+  var color = "";
+  for (var g = 0; g < groups.length; g++) {
+    if (ext && groups[g][1].indexOf(" " + ext + " ") >= 0) { color = groups[g][0]; break; }
+  }
+  if (!color) color = t.indexOf("audio/") === 0 || t.indexOf("video/") === 0 ? "#d6409f" : "#6b7280";
+  var label = (ext || "file").toUpperCase();
+  return '<svg viewBox="0 0 40 48" width="40" height="48" aria-hidden="true">' +
+    '<path d="M8 2h18l10 10v30a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4V6a4 4 0 0 1 4-4zM26 2v10h10" fill="none" stroke="' + color + '" stroke-width="2" stroke-linejoin="round"/>' +
+    '<rect x="1" y="25" width="38" height="15" rx="3" fill="' + color + '"/>' +
+    '<text x="20" y="35.7" text-anchor="middle" font-size="9.5" font-weight="700" fill="#fff" font-family="system-ui,sans-serif">' + label + '</text></svg>';
 }
 
 function fmtLeft(ms) {
@@ -245,6 +275,8 @@ button,.btn{font:inherit;font-weight:600;border:0;border-radius:8px;padding:10px
 .clear{position:absolute;top:8px;right:8px;width:28px;height:28px;padding:0;border-radius:50%;display:flex;align-items:center;justify-content:center;background:var(--card);color:var(--mute);border:1px solid var(--line)}
 .clear:hover{color:var(--danger)}
 .clear[hidden]{display:none}
+#ic{display:block;line-height:0;margin-bottom:10px}
+#ic:empty{display:none}
 .fold{display:grid;grid-template-rows:1fr;transition:grid-template-rows .25s ease,opacity .2s ease}
 .fold>div{min-height:0;overflow:hidden;padding:3px;margin:-3px}
 .fold.shut{grid-template-rows:0fr;opacity:0}
@@ -275,10 +307,12 @@ function homeBody() {
 // Client script for the upload page. String.raw keeps backslashes (e.g. the /^image\//
 // regex) intact; in a plain template literal "\/" silently becomes "/" and breaks the script.
 const UPLOAD_JS = String.raw`
+${fmtSize}
+${fileIcon}
 var z = document.getElementById('z'), fi = document.getElementById('file'),
     zl = document.getElementById('zl'), pv = document.getElementById('pv'),
     f = document.getElementById('f'), xb = document.getElementById('x'),
-    zw = document.getElementById('zw'), dv = document.getElementById('dv'), tx = document.getElementById('tx'),
+    ic = document.getElementById('ic'), zw = document.getElementById('zw'), dv = document.getElementById('dv'), tx = document.getElementById('tx'),
     ta = document.querySelector('textarea[name=text]');
 var LABEL = 'Tap to choose, drag, or paste an image';
 var isImg = function (t) { return /^image\//.test(t); };
@@ -287,7 +321,8 @@ function show() {
   var file = fi.files[0];
   xb.hidden = !file;
   sync();
-  zl.textContent = file ? file.name + ' (' + (file.size / 1048576).toFixed(1) + ' MB)' : LABEL;
+  zl.textContent = file ? file.name + ' (' + fmtSize(file.size) + ')' : LABEL;
+  ic.innerHTML = file && !isImg(file.type) ? fileIcon(file.name, file.type) : '';
   if (pv.src) URL.revokeObjectURL(pv.src);
   if (file && isImg(file.type)) {
     pv.src = URL.createObjectURL(file);
@@ -360,7 +395,7 @@ function uploadBody(name) {
   return `<h1>/${esc(name)}</h1>
 <p class="mute">Empty. Drop something here.</p>
 <form class="card" id="f" method="post" enctype="multipart/form-data">
-<div class="fold" id="zw"><div><label class="zone" id="z"><input type="file" name="file" id="file"><img id="pv" alt="" style="display:none;max-width:100%;max-height:200px;margin:0 auto 10px;border-radius:8px"><span id="zl">Tap to choose, drag, or paste an image</span><button type="button" class="clear" id="x" aria-label="Remove file" title="Remove" hidden><svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M3 3l8 8M11 3l-8 8"/></svg></button></label></div></div>
+<div class="fold" id="zw"><div><label class="zone" id="z"><input type="file" name="file" id="file"><img id="pv" alt="" style="display:none;max-width:100%;max-height:200px;margin:0 auto 10px;border-radius:8px"><span id="ic"></span><span id="zl">Tap to choose, drag, or paste an image</span><button type="button" class="clear" id="x" aria-label="Remove file" title="Remove" hidden><svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M3 3l8 8M11 3l-8 8"/></svg></button></label></div></div>
 <div class="fold" id="dv"><div><div class="or">or paste text</div></div></div>
 <div class="fold" id="tx"><div><textarea name="text" placeholder="Text, a link, whatever"></textarea></div></div>
 <div class="row" style="margin-top:14px;justify-content:space-between">
@@ -380,14 +415,16 @@ function viewBody(name, head, preview) {
       ? "One-time text: it has now been deleted, so copy it before leaving this page."
       : "One-time file: it gets deleted after the first download."
     : `Expires in ${fmtLeft(Number(m.expires) - Date.now())}`;
+  const ct = head.httpMetadata?.contentType || "", isImg = ct.startsWith("image/");
   const content =
     m.kind === "text"
       ? `<pre id="t">${esc(preview)}</pre>
 <div class="row"><button onclick="navigator.clipboard.writeText(document.getElementById('t').textContent).then(()=>this.textContent='Copied')">Copy text</button>
 ${once ? "" : '<a class="btn ghost" href="?dl">Raw</a>'}</div>`
-      : `<p style="margin:0 0 4px;font-weight:600;word-break:break-all">${esc(m.filename)}</p>
-<p class="mute" style="margin:0 0 16px">${fmtSize(head.size)}</p>
-${(head.httpMetadata?.contentType || "").startsWith("image/") ? `<img src="?img" alt="" style="max-width:100%;border-radius:8px;margin:0 0 16px;display:block">` : ""}
+      : `<div class="row" style="flex-wrap:nowrap;gap:14px;margin:0 0 16px">${isImg ? "" : `<span style="line-height:0;flex:none">${fileIcon(m.filename, ct)}</span>`}
+<div style="min-width:0"><p style="margin:0 0 4px;font-weight:600;word-break:break-all">${esc(m.filename)}</p>
+<p class="mute" style="margin:0">${fmtSize(head.size)}</p></div></div>
+${isImg ? `<img src="?img" alt="" style="max-width:100%;border-radius:8px;margin:0 0 16px;display:block">` : ""}
 <div class="row"><a class="btn" href="?dl">Download</a></div>`;
   return `<h1>/${esc(name)}</h1>
 <p class="mute">${status}</p>
