@@ -74,6 +74,14 @@ async function handleGet(req, env, ctx, url, name) {
   // Uploader's confirmation page: never shows (or burns) the content.
   if (url.searchParams.has("sent") && !raw) return page(name, sentBody(name, head));
 
+  if (url.searchParams.has("img") && (head.httpMetadata?.contentType || "").startsWith("image/")) {
+    const obj = await env.DROPS.get(name);
+    if (!obj) return text("empty\n", 404);
+    return new Response(obj.body, {
+      headers: { "Content-Type": head.httpMetadata.contentType, "Cache-Control": "no-store", "Content-Disposition": "inline" },
+    });
+  }
+
   if (raw) {
     const obj = await env.DROPS.get(name);
     if (!obj) return text("empty\n", 404);
@@ -260,7 +268,7 @@ function uploadBody(name) {
   return `<h1>/${esc(name)}</h1>
 <p class="mute">Empty. Drop something here.</p>
 <form class="card" id="f" method="post" enctype="multipart/form-data">
-<label class="zone" id="z"><input type="file" name="file" id="file"><span id="zl">Tap to choose a file, or drag one here</span></label>
+<label class="zone" id="z"><input type="file" name="file" id="file"><img id="pv" alt="" style="display:none;max-width:100%;max-height:200px;margin:0 auto 10px;border-radius:8px"><span id="zl">Tap to choose, drag, or paste an image</span></label>
 <div class="or">or paste text</div>
 <textarea name="text" placeholder="Text, a link, whatever"></textarea>
 <div class="row" style="margin-top:14px;justify-content:space-between">
@@ -271,8 +279,14 @@ function uploadBody(name) {
 </form>
 <script>
 var z=document.getElementById('z'),fi=document.getElementById('file'),zl=document.getElementById('zl'),f=document.getElementById('f');
-function show(){zl.textContent=fi.files.length?fi.files[0].name+' ('+(fi.files[0].size/1048576).toFixed(1)+' MB)':'Tap to choose a file, or drag one here'}
+function show(){zl.textContent=fi.files.length?fi.files[0].name+' ('+(fi.files[0].size/1048576).toFixed(1)+' MB)':'Tap to choose, drag, or paste an image'}
+var pv=document.getElementById('pv');
+var _show=show;show=function(){_show();var f0=fi.files[0];if(f0&&/^image\//.test(f0.type)){pv.src=URL.createObjectURL(f0);pv.style.display='block'}else{pv.style.display='none'}};
 fi.onchange=show;
+document.addEventListener('paste',function(ev){var it=[].slice.call((ev.clipboardData||{}).items||[]).find(function(i){return i.kind==='file'&&/^image\//.test(i.type)});if(!it)return;ev.preventDefault();
+var b=it.getAsFile(),d=new Date(),p=function(n){return String(n).padStart(2,'0')};
+var nm='pasted-'+d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+'-'+p(d.getHours())+p(d.getMinutes())+'.'+((b.type.split('/')[1]||'png').replace('jpeg','jpg'));
+var dt=new DataTransfer();dt.items.add(new File([b],nm,{type:b.type}));fi.files=dt.files;show()});
 ['dragenter','dragover'].forEach(function(e){z.addEventListener(e,function(ev){ev.preventDefault();z.classList.add('over')})});
 ['dragleave','drop'].forEach(function(e){z.addEventListener(e,function(ev){ev.preventDefault();z.classList.remove('over')})});
 z.addEventListener('drop',function(ev){if(ev.dataTransfer.files.length){fi.files=ev.dataTransfer.files;show()}});
@@ -300,6 +314,7 @@ function viewBody(name, head, preview) {
 ${once ? "" : '<a class="btn ghost" href="?dl">Raw</a>'}</div>`
       : `<p style="margin:0 0 4px;font-weight:600;word-break:break-all">${esc(m.filename)}</p>
 <p class="mute" style="margin:0 0 16px">${fmtSize(head.size)}</p>
+${(head.httpMetadata?.contentType || "").startsWith("image/") ? `<img src="?img" alt="" style="max-width:100%;border-radius:8px;margin:0 0 16px;display:block">` : ""}
 <div class="row"><a class="btn" href="?dl">Download</a></div>`;
   return `<h1>/${esc(name)}</h1>
 <p class="mute">${status}</p>
