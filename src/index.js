@@ -314,7 +314,7 @@ var z = document.getElementById('z'), fi = document.getElementById('file'),
     f = document.getElementById('f'), xb = document.getElementById('x'),
     ic = document.getElementById('ic'), zw = document.getElementById('zw'), dv = document.getElementById('dv'), tx = document.getElementById('tx'),
     ta = document.querySelector('textarea[name=text]');
-var LABEL = 'Tap to choose, drag, or paste an image';
+var LABEL = 'Tap to choose, drag, or paste a file';
 var isImg = function (t) { return /^image\//.test(t); };
 
 function show() {
@@ -353,15 +353,19 @@ function setFile(file) {
 
 document.addEventListener('paste', function (ev) {
   var items = Array.prototype.slice.call((ev.clipboardData || {}).items || []);
-  var it = items.find(function (i) { return i.kind === 'file' && isImg(i.type); });
+  var it = items.find(function (i) { return i.kind === 'file'; });
   if (!it) return; // plain text paste goes to the textarea as usual
   ev.preventDefault();
-  var b = it.getAsFile(), d = new Date();
-  var p = function (n) { return String(n).padStart(2, '0'); };
-  var ext = (b.type.split('/')[1] || 'png').split('+')[0].replace('jpeg', 'jpg');
+  var b = it.getAsFile();
+  if (!b) return;
+  // Files copied in a file manager keep their real name; screenshots arrive as a generic
+  // "image.png" (or nameless), so give those a timestamped name instead.
+  if (b.name && !/^image\.\w+$/i.test(b.name)) return setFile(b);
+  var d = new Date(), p = function (n) { return String(n).padStart(2, '0'); };
+  var ext = (b.type.split('/')[1] || 'bin').split('+')[0].replace('jpeg', 'jpg');
   var nm = 'pasted-' + d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) +
            '-' + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds()) + '.' + ext;
-  setFile(new File([b], nm, { type: b.type }));
+  setFile(new File([b], nm, { type: b.type || 'application/octet-stream' }));
 });
 
 ['dragenter', 'dragover'].forEach(function (e) {
@@ -395,7 +399,7 @@ function uploadBody(name) {
   return `<h1>/${esc(name)}</h1>
 <p class="mute">Empty. Drop something here.</p>
 <form class="card" id="f" method="post" enctype="multipart/form-data">
-<div class="fold" id="zw"><div><label class="zone" id="z"><input type="file" name="file" id="file"><img id="pv" alt="" style="display:none;max-width:100%;max-height:200px;margin:0 auto 10px;border-radius:8px"><span id="ic"></span><span id="zl">Tap to choose, drag, or paste an image</span><button type="button" class="clear" id="x" aria-label="Remove file" title="Remove" hidden><svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M3 3l8 8M11 3l-8 8"/></svg></button></label></div></div>
+<div class="fold" id="zw"><div><label class="zone" id="z"><input type="file" name="file" id="file"><img id="pv" alt="" style="display:none;max-width:100%;max-height:200px;margin:0 auto 10px;border-radius:8px"><span id="ic"></span><span id="zl">Tap to choose, drag, or paste a file</span><button type="button" class="clear" id="x" aria-label="Remove file" title="Remove" hidden><svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M3 3l8 8M11 3l-8 8"/></svg></button></label></div></div>
 <div class="fold" id="dv"><div><div class="or">or paste text</div></div></div>
 <div class="fold" id="tx"><div><textarea name="text" placeholder="Text, a link, whatever"></textarea></div></div>
 <div class="row" style="margin-top:14px;justify-content:space-between">
